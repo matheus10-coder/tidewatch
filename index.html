@@ -1,0 +1,599 @@
+<title>Tidewatch Contraction Timer</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Figtree:wght@400;500;600;700;800&display=swap">
+<style>
+/* Layout: one timer column that doubles as the control, a "where you are" panel and a hospital plan beside it on desktop; stacked in that order on a phone. Dark first, because labor happens at night. */
+:root{
+  --bg:#0d1520; --surface:#151f2e; --surface-2:#1d2a3d; --line:#2a3b52;
+  --fg:#e8eef6; --muted:#93a4ba;
+  --accent:#8db2ff; --accent-ink:#0a1220;
+  --early:#5fcdb8; --active:#f4b94e; --trans:#ff7b6e; --ok:#5fcdb8;
+  --font-body:"Figtree",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-mono:"DM Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --bg:#f2f5f9; --surface:#ffffff; --surface-2:#e8eef6; --line:#d2dce8;
+    --fg:#131f2e; --muted:#566a80;
+    --accent:#2c5cd0; --accent-ink:#ffffff;
+    --early:#0c8a77; --active:#a86b05; --trans:#d03f33; --ok:#0c8a77;
+    color-scheme:light;
+  }
+}
+:root[data-theme="light"]{
+  --bg:#f2f5f9; --surface:#ffffff; --surface-2:#e8eef6; --line:#d2dce8;
+  --fg:#131f2e; --muted:#566a80;
+  --accent:#2c5cd0; --accent-ink:#ffffff;
+  --early:#0c8a77; --active:#a86b05; --trans:#d03f33; --ok:#0c8a77;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:16px;line-height:1.45;
+  padding-inline:max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px));padding-block:14px 40px}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+h1,h2,h3,p{margin:0}
+.app{max-width:1040px;margin:0 auto}
+
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:12px}
+.brand{display:flex;align-items:center;gap:8px;font-weight:800;font-size:19px;letter-spacing:-.01em}
+.brand svg{width:26px;height:26px;color:var(--accent)}
+.clock{font-family:var(--font-mono);font-size:13px;color:var(--muted)}
+.banner{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 14px;margin-bottom:14px;padding:10px 14px;
+  border:1px dashed var(--line);border-radius:12px;color:var(--muted);font-size:14px}
+.banner b{color:var(--fg);font-weight:600}
+.link{background:none;border:0;padding:4px 0;color:var(--accent);font-weight:600;text-decoration:underline;text-underline-offset:3px}
+
+.grid{display:grid;gap:14px;grid-template-columns:minmax(0,1fr);
+  grid-template-areas:"phase" "timer" "go" "trend" "log" "setup"}
+@media (min-width:880px){
+  .grid{grid-template-columns:minmax(0,420px) minmax(0,1fr);align-items:start;
+    grid-template-areas:"timer phase" "timer go" "log trend" "log setup"}
+}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:18px;min-width:0}
+.eyebrow{font-size:12px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.hint{font-size:13px;color:var(--muted);margin-top:6px}
+
+/* Timer */
+#timer{grid-area:timer;display:flex;flex-direction:column;gap:14px}
+.dial{position:relative;display:block;width:min(252px,74vw);aspect-ratio:1;margin:2px auto 0;padding:0;border:0;border-radius:50%;background:none}
+.dial svg{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg);overflow:visible}
+.dial .track{fill:none;stroke:var(--line);stroke-width:8}
+.dial .prog{fill:none;stroke:var(--accent);stroke-width:8;stroke-linecap:round;stroke-dasharray:678.6;stroke-dashoffset:678.6}
+.dial.done .prog{stroke:var(--ok)}
+.dial .tick{fill:var(--muted)}
+.dial .face{position:absolute;inset:7.5%;border-radius:50%;display:grid;place-content:center;gap:4px;text-align:center;
+  background:var(--accent);color:var(--accent-ink);transition:background .2s,color .2s}
+.dial.run .face{background:var(--surface-2);color:var(--fg);box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 45%,transparent);animation:halo 2.4s ease-out infinite}
+@keyframes halo{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 40%,transparent)}100%{box-shadow:0 0 0 22px transparent}}
+@media (prefers-reduced-motion: reduce){.dial.run .face{animation:none}}
+.dial-main{font-size:38px;font-weight:800;letter-spacing:-.02em;line-height:1}
+.dial.run .dial-main{font-family:var(--font-mono);font-weight:500;font-size:56px;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+.dial-sub{font-size:13px;font-weight:500;opacity:.85;max-width:12ch;margin:0 auto}
+.dial.run .dial-sub{color:var(--muted);opacity:1}
+.since{display:flex;justify-content:center;flex-wrap:wrap;gap:4px 18px;font-size:14px;color:var(--muted)}
+.since b{font-family:var(--font-mono);font-weight:500;color:var(--fg);font-variant-numeric:tabular-nums}
+.rate{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px;font-size:14px;color:var(--muted)}
+.rate .chip{padding:6px 14px}
+.chip{border:1px solid var(--line);background:var(--surface-2);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600}
+.chip[aria-pressed="true"],.chip.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.stat{background:var(--surface-2);border-radius:12px;padding:10px 12px;min-width:0}
+.stat .k{font-size:12px;color:var(--muted);font-weight:600}
+.stat .v{font-family:var(--font-mono);font-size:24px;font-variant-numeric:tabular-nums;line-height:1.2;margin-top:2px}
+.stat .v small{font-family:var(--font-body);font-size:13px;color:var(--muted);margin-left:4px}
+.row-actions{display:flex;justify-content:center;gap:18px}
+
+/* Phase */
+#phase{grid-area:phase;--ph:var(--muted);display:flex;flex-direction:column;gap:12px;
+  background:color-mix(in srgb,var(--ph) 11%,var(--surface));border-color:color-mix(in srgb,var(--ph) 45%,var(--line))}
+.ph-early{--ph:var(--early)} .ph-active{--ph:var(--active)} .ph-transition{--ph:var(--trans)}
+.ph-irregular,.ph-none{--ph:var(--muted)}
+.ph-title{display:flex;align-items:center;gap:10px;font-size:28px;font-weight:800;letter-spacing:-.02em;line-height:1.1}
+.dot{display:inline-block;width:12px;height:12px;border-radius:50%;background:var(--ph);flex:none}
+.blurb{max-width:60ch}
+.todo{font-weight:600;max-width:60ch}
+.steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.step{border:1px solid var(--line);border-radius:10px;padding:8px 9px;font-size:12px;color:var(--muted);line-height:1.3}
+.step b{display:block;color:var(--fg);font-size:13px;margin-bottom:2px}
+.step.on{background:color-mix(in srgb,var(--c) 20%,transparent);border-color:var(--c);color:var(--fg)}
+.basis{font-size:13px;color:var(--muted)}
+
+/* Hospital plan */
+#goWrap{grid-area:go;display:flex;flex-direction:column;gap:10px;min-width:0}
+.go{--c:var(--accent);display:flex;flex-direction:column;gap:10px}
+.go-soon{--c:var(--active)} .go-go,.go-urgent{--c:var(--trans)} .go-idle{--c:var(--muted)}
+.go-go,.go-urgent,.go-soon{border-color:var(--c);background:color-mix(in srgb,var(--c) 10%,var(--surface))}
+.go-head{font-size:14px;font-weight:700;color:var(--c)}
+.go-big{font-size:30px;font-weight:800;letter-spacing:-.02em;line-height:1.1;text-wrap:balance}
+.go-sub{max-width:60ch}
+.go-arrive{font-size:14px;color:var(--muted)}
+.meters{display:grid;gap:12px;margin-top:4px}
+.meter{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;font-size:14px}
+.m-l{color:var(--muted)} .m-v{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.meter.pass .m-v{color:var(--ok)} .meter.pass .m-v::before{content:"✓ "}
+.bar{grid-column:1/-1;height:6px;border-radius:3px;background:var(--surface-2);overflow:hidden}
+.bar i{display:block;height:100%;border-radius:3px;background:var(--accent)}
+.meter.pass .bar i{background:var(--ok)}
+.fine{font-size:12px;color:var(--muted)}
+.signs{padding:0}
+.signs summary{padding:14px 18px;cursor:pointer;font-weight:700;list-style:none;display:flex;justify-content:space-between;gap:8px}
+.signs summary::-webkit-details-marker{display:none}
+.signs summary::after{content:"+";color:var(--muted);font-weight:500}
+.signs[open] summary::after{content:"–"}
+.signs-body{padding:0 18px 16px;display:grid;gap:10px}
+.chk{display:flex;align-items:center;gap:10px;font-size:15px}
+.chk input{width:20px;height:20px;accent-color:var(--trans);flex:none}
+.signs .on-count{color:var(--trans)}
+
+/* Trace */
+#trend{grid-area:trend}
+.card-h{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.card-h h2{font-size:17px;font-weight:700}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface-2)}
+.seg button{border:0;background:none;padding:7px 12px;font-size:13px;font-weight:600;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.seg.full{display:grid;grid-auto-flow:column;grid-auto-columns:1fr}
+#chart{width:100%}
+#chart svg{display:block}
+#chart .g{stroke:var(--line);stroke-width:1}
+#chart .g60{stroke:var(--muted);stroke-width:1;stroke-dasharray:4 4}
+#chart .ax{fill:var(--muted);font:10px var(--font-mono)}
+#chart .band{fill:color-mix(in srgb,var(--accent) 13%,transparent);stroke:var(--accent);stroke-width:1;stroke-dasharray:3 3}
+#chart .bl{fill:var(--accent);font:600 11px var(--font-body)}
+#chart .b-early{fill:var(--early)} #chart .b-active{fill:var(--active)} #chart .b-transition{fill:var(--trans)} #chart .b-irregular{fill:var(--muted)}
+#chart .b{fill-opacity:.88}
+#chart .empty{fill:var(--muted);font:14px var(--font-body)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:8px;font-size:12px;color:var(--muted)}
+.legend span::before{content:"";display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;background:var(--c)}
+
+/* Log */
+#log{grid-area:log}
+.log-list{display:grid;gap:0;margin:0;padding:0;list-style:none}
+.li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:2px 12px;align-items:center;padding:11px 0;border-top:1px solid var(--line)}
+.li:first-child{border-top:0}
+.li .dot{--ph:var(--muted);grid-row:1/3;align-self:start;margin-top:6px}
+.li .t{font-weight:600}
+.li .m{font-family:var(--font-mono);font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.li .m b{color:var(--fg);font-weight:500}
+.li .acts{display:flex;align-items:center;gap:6px;grid-column:2/4}
+.li .chip{padding:3px 10px;font-size:12px}
+.li .x{margin-left:auto;border:0;background:none;color:var(--muted);font-size:13px;padding:4px 2px;text-decoration:underline;text-underline-offset:3px}
+.empty-log{color:var(--muted);padding:6px 0}
+
+/* Setup */
+#setup{grid-area:setup;display:grid;gap:16px}
+#setup h2{font-size:17px;font-weight:700}
+.field{display:grid;gap:6px;min-width:0}
+.field>label,.field>.lab{font-size:13px;font-weight:700;color:var(--muted)}
+.stepper{display:inline-flex;align-items:center;gap:12px}
+.stepper button{width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--surface-2);font-size:20px;line-height:1}
+.stepper output{font-family:var(--font-mono);font-size:20px;min-width:7ch;text-align:center;font-variant-numeric:tabular-nums}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.foot{margin-top:18px;font-size:12px;color:var(--muted);max-width:70ch}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+</style>
+
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M2 20c3 0 4-9 7-9s4 9 7 9 4-9 7-9 4 9 7 9"/><path d="M2 27h28" opacity=".45"/></svg>
+      Tidewatch
+    </div>
+    <div class="clock" id="clock" aria-hidden="true"></div>
+  </header>
+
+  <div id="banner"></div>
+
+  <main class="grid">
+    <section class="card" id="timer" aria-label="Contraction timer">
+      <button class="dial" id="dial" type="button" aria-describedby="dialHint">
+        <svg viewBox="0 0 240 240" aria-hidden="true">
+          <circle class="track" cx="120" cy="120" r="108"/>
+          <circle class="prog" id="prog" cx="120" cy="120" r="108"/>
+          <circle class="tick" cx="120" cy="228" r="3.5"/><circle class="tick" cx="12" cy="120" r="3.5"/><circle class="tick" cx="120" cy="12" r="3.5"/>
+        </svg>
+        <span class="face"><span class="dial-main" id="dMain">Start</span><span class="dial-sub" id="dSub">Tap when a contraction begins</span></span>
+      </button>
+      <p class="hint" id="dialHint" style="text-align:center;margin-top:-4px">The ring fills at 60 seconds, the length hospital rules look for.</p>
+      <div class="since" aria-live="off"><span>Last began <b id="sinceVal">–</b> ago</span><span><b id="countVal">0</b> logged</span></div>
+      <div class="rate" id="rate" hidden><span>How strong?</span>
+        <button class="chip" type="button" data-rate="1">Mild</button><button class="chip" type="button" data-rate="2">Moderate</button><button class="chip" type="button" data-rate="3">Strong</button></div>
+      <div class="stats" id="stats"></div>
+      <div class="row-actions"><button class="link" id="undo" type="button">Undo last</button></div>
+      <p class="sr" id="live" aria-live="polite"></p>
+    </section>
+
+    <section class="card ph-none" id="phase" aria-live="polite"></section>
+
+    <div id="goWrap">
+      <section class="card go go-idle" id="go"></section>
+      <details class="card signs" id="signs">
+        <summary><span>Go-now signs <span class="on-count" id="signCount"></span></span></summary>
+        <div class="signs-body">
+          <p class="hint" style="margin:0">Tick any that apply. They override the timer.</p>
+          <label class="chk"><input type="checkbox" data-flag="water"> My water broke</label>
+          <label class="chk"><input type="checkbox" data-flag="bleed"> Bleeding heavier than spotting</label>
+          <label class="chk"><input type="checkbox" data-flag="move"> Baby is moving much less</label>
+          <label class="chk"><input type="checkbox" data-flag="nobreak"> Pain with no break between contractions</label>
+          <label class="chk"><input type="checkbox" data-flag="head"> Severe headache or vision changes</label>
+          <label class="chk"><input type="checkbox" data-flag="push"> Urge to push (call emergency services)</label>
+        </div>
+      </details>
+    </div>
+
+    <section class="card" id="trend" aria-label="Contraction trace">
+      <div class="card-h"><h2>Contraction trace</h2>
+        <div class="seg" id="winSeg"><button type="button" data-win="60" aria-pressed="true">1 hour</button><button type="button" data-win="180" aria-pressed="false">3 hours</button></div></div>
+      <div id="chart"></div>
+      <div class="legend"><span style="--c:var(--early)">Early</span><span style="--c:var(--active)">Active</span><span style="--c:var(--trans)">Transition</span><span style="--c:var(--muted)">Uneven</span><span>Height is length in seconds</span></div>
+    </section>
+
+    <section class="card" id="log" aria-label="Contraction log">
+      <div class="card-h"><h2>Log</h2><button class="link" id="clearAll" type="button">Clear all</button></div>
+      <ul class="log-list" id="logList"></ul>
+      <button class="link" id="more" type="button" hidden></button>
+    </section>
+
+    <section class="card" id="setup" aria-label="Your plan">
+      <h2>Your plan</h2>
+      <div class="field"><span class="lab">Hospital rule</span>
+        <div class="seg full" id="ruleSeg"><button type="button" data-rule="511" aria-pressed="true">5-1-1</button><button type="button" data-rule="411" aria-pressed="false">4-1-1</button><button type="button" data-rule="311" aria-pressed="false">3-1-1</button></div>
+        <p class="hint" id="ruleHint"></p></div>
+      <div class="field"><span class="lab">Birth history</span>
+        <div class="seg full" id="histSeg"><button type="button" data-hist="first" aria-pressed="true">First baby</button><button type="button" data-hist="again" aria-pressed="false">Had a baby before</button></div>
+        <p class="hint" id="histHint"></p></div>
+      <div class="field"><span class="lab">Drive to the hospital</span>
+        <div class="stepper"><button type="button" id="tMinus" aria-label="5 minutes less">−</button><output id="tVal" aria-live="polite"></output><button type="button" id="tPlus" aria-label="5 minutes more">+</button></div>
+        <p class="hint">Past 30 minutes, the plan moves your leave time earlier by the extra drive.</p></div>
+      <label class="chk"><input type="checkbox" id="preterm"> I am before 37 weeks</label>
+      <div class="field"><span class="lab">Prototype demo data</span>
+        <div class="chips" id="exChips">
+          <button class="chip" type="button" data-ex="early" aria-pressed="false">Early</button>
+          <button class="chip" type="button" data-ex="building" aria-pressed="false">Tightening</button>
+          <button class="chip" type="button" data-ex="met" aria-pressed="false">Rule reached</button>
+          <button class="chip" type="button" data-ex="transition" aria-pressed="false">Transition</button>
+          <button class="chip" type="button" data-ex="fresh" aria-pressed="false">Start fresh</button>
+        </div></div>
+    </section>
+  </main>
+
+  <p class="foot">Tidewatch is a prototype. It is not medical advice. The phase ranges and the hospital rule are common guidelines, and your provider's instructions come first. Call them or go in whenever something feels wrong, even if the numbers say to wait.</p>
+</div>
+
+<script>
+(function(){
+"use strict";
+const KEY="tidewatch-v1";
+const $=(s,r)=>(r||document).querySelector(s);
+const $$=(s,r)=>Array.from((r||document).querySelectorAll(s));
+const pad=n=>String(n).padStart(2,"0");
+const avg=a=>a.reduce((x,y)=>x+y,0)/a.length;
+const sd=a=>{const m=avg(a);return Math.sqrt(avg(a.map(v=>(v-m)*(v-m))))};
+const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+const lerp=(a,b,f)=>a+(b-a)*f;
+const fmtMS=s=>{s=Math.max(0,Math.round(s));return Math.floor(s/60)+":"+pad(s%60)};
+const clock=ms=>new Date(ms).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
+const clock5=ms=>clock(Math.round(ms/300000)*300000);
+const fmtDur=ms=>{const m=Math.max(1,Math.round(ms/60000));if(m<60)return m+" min";const h=Math.floor(m/60),r=m%60;return r?h+" h "+r+" min":h+" h"};
+let uidN=0;const uid=()=>Date.now().toString(36)+(uidN++).toString(36)+Math.random().toString(36).slice(2,5);
+
+const RULES={"511":{label:"5-1-1",x:5},"411":{label:"4-1-1",x:4},"311":{label:"3-1-1",x:3}};
+const PHASES={
+  none:{name:"Collecting data",blurb:"Time at least three contractions and your pattern shows up here.",todo:"Tap Start when one begins, tap again when it ends."},
+  irregular:{name:"Practice contractions?",blurb:"The spacing is uneven, which is common with Braxton Hicks. Real labor tends to settle into a rhythm.",todo:"Drink water, change position and rest. If they stay uneven but get stronger, keep timing."},
+  early:{name:"Early labor",blurb:"Contractions are mild and spaced out. Your body is warming up, and this stage can last many hours.",todo:"Stay home. Rest, drink water, eat something light and keep timing."},
+  active:{name:"Active labor",blurb:"Contractions are longer, stronger and closer together. This is when most providers ask you to come in.",todo:"Get your bag and your ride ready. Call your provider if you have not already."},
+  transition:{name:"Transition",blurb:"The most intense stretch, close to pushing. Contractions are close together, long and strong.",todo:"Go to the hospital now. If you feel the urge to push, call emergency services."}
+};
+const EXAMPLES={early:"Early labor",building:"Tightening toward the rule",met:"Rule reached",transition:"Transition"};
+const SCEN={
+  early:{since:150,seg:[{n:7,i:[16,11],d:[32,42]}]},
+  building:{since:110,seg:[{n:16,i:[13,5.8],d:[38,57]}]},
+  met:{since:70,seg:[{n:10,i:[12,5.2],d:[40,55]},{n:17,i:[4.9,4.4],d:[60,67]}]},
+  transition:{since:45,seg:[{n:10,i:[8,4.5],d:[45,60]},{n:12,i:[4.2,3],d:[60,75]},{n:10,i:[2.8,2.2],d:[75,90]}]}
+};
+function rng(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function makeExample(key){
+  const r=rng(11+key.length*17),sc=SCEN[key],pts=[];
+  sc.seg.forEach(s=>{for(let k=0;k<s.n;k++){const f=s.n>1?k/(s.n-1):1;pts.push({i:lerp(s.i[0],s.i[1],f)*(1+(r()-.5)*.16),d:Math.round(lerp(s.d[0],s.d[1],f)+(r()-.5)*6)})}});
+  let end=Date.now()-sc.since*1000;const out=[];
+  for(let k=pts.length-1;k>=0;k--){
+    const d=pts[k].d,start=end-d*1000;
+    out.unshift({id:uid(),start,end,intensity:r()<.2?null:(d<45?1:d<62?2:3)});
+    if(k>0){end=start-pts[k].i*60000+pts[k-1].d*1000}
+  }
+  return out;
+}
+
+/* ---------- state ---------- */
+function fresh(){return{contractions:[],current:null,example:null,rule:"511",history:"first",travel:25,preterm:false,flags:{},win:60,showAll:false}}
+let S=null;
+try{S=JSON.parse(localStorage.getItem(KEY))}catch(e){S=null}
+if(!S||!Array.isArray(S.contractions)){S=fresh();S.contractions=makeExample("building");S.example="building"}
+else{S=Object.assign(fresh(),S)}
+if(S.example&&S.contractions.length){const last=S.contractions[S.contractions.length-1];if(Date.now()-last.end>20*60000){S.contractions=makeExample(S.example)}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+const rule=()=>RULES[S.rule]||RULES["511"];
+const flagCount=()=>Object.keys(S.flags).filter(k=>S.flags[k]).length;
+const done=()=>S.contractions.filter(c=>c.end).sort((a,b)=>a.start-b.start);
+
+/* ---------- analysis ---------- */
+function classify(im,d,cv){
+  if(im>=8&&cv>0.45)return"irregular";
+  if(im<=3&&d>=60)return"transition";
+  if(im<=5.25&&d>=45)return"active";
+  return"early";
+}
+function phaseAt(list,i){
+  const w=list.slice(Math.max(0,i-4),i+1);if(w.length<3)return"early";
+  const ints=[];for(let k=1;k<w.length;k++)ints.push((w[k].start-w[k-1].start)/60000);
+  return classify(avg(ints),avg(w.map(c=>(c.end-c.start)/1000)),sd(ints)/avg(ints));
+}
+function analyze(now){
+  const list=done(),n=list.length,X=rule().x;
+  const A={list,n,now,X};
+  A.ints=list.map((c,i)=>i?(c.start-list[i-1].start)/1000:null);
+  A.durs=list.map(c=>(c.end-c.start)/1000);
+  const ri=A.ints.slice(-6).filter(v=>v!=null);
+  A.avgInt=ri.length?avg(ri):null;
+  A.avgDur=n?avg(A.durs.slice(-6)):null;
+  A.cv=ri.length>=3?sd(ri)/avg(ri):0;
+  A.phase=n>=3?classify(A.avgInt/60,A.avgDur,A.cv):"none";
+  A.perHour=list.filter(c=>c.start>=now-3600000).length;
+  A.r3Int=n>=3?(A.ints[n-1]+A.ints[n-2])/2:null;
+  A.r3Dur=n>=3?(A.durs[n-1]+A.durs[n-2]+A.durs[n-3])/3:null;
+  const meetsAt=i=>i>=2&&(A.ints[i]+A.ints[i-1])/2<=X*60+15&&(A.durs[i]+A.durs[i-1]+A.durs[i-2])/3>=55;
+  let j=n-1;while(j>=2&&meetsAt(j))j--;
+  const first=j+1;
+  A.streak={active:false,min:0,startMs:null};
+  if(n>=3&&first<=n-1&&now-list[n-1].end<=(X+3)*60000){
+    A.streak={active:true,startMs:list[first].start,min:(list[n-1].end-list[first].start)/60000};
+  }
+  A.met=A.streak.active&&A.streak.min>=60;
+  A.est=null;
+  if(!A.met&&!A.streak.active){
+    const idx=[];for(let i=Math.max(1,n-10);i<n;i++)idx.push(i);
+    if(idx.length>=5){
+      const xs=idx.map(i=>list[i].start/60000),ys=idx.map(i=>A.ints[i]/60);
+      const mx=avg(xs),my=avg(ys);let num=0,den=0;
+      xs.forEach((x,k)=>{num+=(x-mx)*(ys[k]-my);den+=(x-mx)*(x-mx)});
+      if(den>0){
+        const m=num/den,a=my-m*mx,nowT=now/60000,fitNow=a+m*nowT;
+        if(fitNow<=X)A.est={reachMs:now,fitNow};
+        else if(m>-0.004)A.est={stalled:true,fitNow};
+        else{const tr=(X-a)/m;A.est=tr-nowT>480?{far:true,fitNow}:{reachMs:tr*60000,fitNow}}
+      }
+    }
+  }
+  return A;
+}
+
+/* ---------- hospital plan ---------- */
+function meter(label,val,frac,pass){
+  return `<div class="meter${pass?" pass":""}"><span class="m-l">${label}</span><span class="m-v">${val}</span><div class="bar"><i style="width:${Math.round(clamp(frac,0,1)*100)}%"></i></div></div>`;
+}
+function goHTML(A){
+  const X=A.X,lab=rule().label,now=A.now,travel=S.travel,extra=Math.max(0,travel-30);
+  const arriveFrom=ms=>`Arrive around ${clock(ms+travel*60000)} after a ${travel} min drive.`;
+  let state="idle",head="Hospital plan",big="",sub="",arrive="";
+  const preWarn=S.preterm&&A.perHour>=6;
+  let metMs=null;
+  if(A.streak.active&&!A.met)metMs=A.streak.startMs+3600000;
+  else if(A.est&&A.est.reachMs!=null)metMs=Math.max(A.est.reachMs,now)+3600000;
+  const leaveMs=metMs!=null?metMs-extra*60000:null;
+
+  if(flagCount()||preWarn){
+    state="urgent";head="Do not wait";big="Call your provider and go in";
+    sub=flagCount()?"You ticked a sign that needs checking now, whatever the contraction pattern says.":"Before 37 weeks, 6 or more contractions in an hour needs a call to your provider right away.";
+    arrive=arriveFrom(now);
+  }else if(A.phase==="transition"||A.met||(leaveMs!=null&&leaveMs<=now)){
+    state="go";head="Time to go";big="Leave now";
+    if(A.met)sub=`Your ${lab} pattern has held for ${Math.floor(A.streak.min)} minutes. Call the hospital from the car.`;
+    else if(A.phase==="transition")sub="Contractions this close, long and strong mean birth may be near.";
+    else sub=`With a ${travel} min drive, the extra travel time means leaving a little before the full hour.`;
+    arrive=arriveFrom(now);
+  }else if(A.streak.active){
+    state="soon";head="Almost there";big=`Leave around ${clock5(leaveMs)}`;
+    sub=`${Math.floor(A.streak.min)} of 60 minutes at ${lab} so far. About ${fmtDur(leaveMs-now)} to go.`;
+    arrive=arriveFrom(leaveMs);
+  }else if(leaveMs!=null){
+    state="est";head="Estimated plan";big=`Leave around ${clock5(leaveMs)}`;
+    const span=leaveMs-now,lo=leaveMs-span*.2-300000,hi=leaveMs+span*.3+300000;
+    sub=`Likely between ${clock5(Math.max(lo,now))} and ${clock5(hi)}, in about ${fmtDur(span)}. This follows how fast your contractions are tightening.`;
+    arrive=arriveFrom(leaveMs);
+  }else if(A.n<5){
+    big="Keep timing";sub="Log at least 5 contractions and Tidewatch can estimate when to leave.";
+  }else{
+    big="Not yet";
+    if(A.est&&A.est.stalled)sub="Contractions are not getting closer together yet. The estimate appears once they start to tighten.";
+    else if(A.est&&A.est.far)sub="Contractions are tightening slowly, so the hospital is still many hours away.";
+    else sub=`Contractions are ${fmtMS(A.avgInt)} apart. They need to reach ${X} minutes apart and last about a minute.`;
+  }
+  const have=A.n>=3;
+  const m1=meter(`About ${X} min apart or less`,have?fmtMS(A.r3Int)+" apart":"–",have?X*60/A.r3Int:0,have&&A.r3Int<=X*60+15);
+  const m2=meter("About 1 minute long",have?Math.round(A.r3Dur)+" s":"–",have?A.r3Dur/60:0,have&&A.r3Dur>=55);
+  const m3=meter("Held for 1 hour",`${Math.floor(A.streak.min)} / 60 min`,A.streak.min/60,A.met);
+  A._state=state;
+  return `<div class="eyebrow">Hospital plan</div>
+    <div class="go-head">${head}</div>
+    <div class="go-big">${big}</div>
+    <p class="go-sub">${sub}</p>
+    ${arrive?`<p class="go-arrive">${arrive}</p>`:""}
+    <div class="meters">${m1}${m2}${m3}</div>
+    <p class="fine">Checked over your last 3 contractions. The estimate recalculates every time you log one.</p>`;
+}
+function stateClass(A){const m={go:"go-go",urgent:"go-urgent",soon:"go-soon",est:"go-est",idle:"go-idle"};return m[A._state]||"go-idle"}
+
+/* ---------- render ---------- */
+function renderPhase(A){
+  const p=PHASES[A.phase],el=$("#phase");
+  el.className="card ph-"+A.phase;
+  const order=[["early","Early","5–30 min · 30–45 s"],["active","Active","3–5 min · 45–60 s"],["transition","Transition","2–3 min · 60–90 s"]];
+  const steps=order.map(o=>`<div class="step${A.phase===o[0]?" on":""}" style="--c:var(--${o[0]==="early"?"early":o[0]==="active"?"active":"trans"})"><b>${o[1]}</b>${o[2]}</div>`).join("");
+  const basis=A.n>=3?`Based on your last ${Math.min(6,A.n)} contractions: ${fmtMS(A.avgInt)} apart on average, ${Math.round(A.avgDur)} seconds long.`:`${A.n} of 3 contractions logged.`;
+  el.innerHTML=`<div class="eyebrow">Where you are</div>
+    <h2 class="ph-title"><span class="dot"></span>${p.name}</h2>
+    <p class="blurb">${p.blurb}</p>
+    <p class="todo">${p.todo}</p>
+    <div class="steps">${steps}</div>
+    <p class="basis">${basis}</p>`;
+}
+function renderStats(A){
+  const have=A.n>=2;
+  const pat=A.n<4?"–":A.cv<=0.2?"Steady":A.cv<=0.4?"Settling":"Uneven";
+  $("#stats").innerHTML=
+   `<div class="stat"><div class="k">Apart, average</div><div class="v">${have?fmtMS(A.avgInt):"–"}<small>min</small></div></div>
+    <div class="stat"><div class="k">Length, average</div><div class="v">${A.n?Math.round(A.avgDur):"–"}<small>sec</small></div></div>
+    <div class="stat"><div class="k">Last hour</div><div class="v">${A.perHour}<small>contractions</small></div></div>
+    <div class="stat"><div class="k">Pattern</div><div class="v" style="font-family:var(--font-body);font-weight:700;font-size:20px;padding-top:3px">${pat}</div></div>`;
+}
+function renderGo(A){
+  const html=goHTML(A);
+  const el=$("#go");el.className="card go "+stateClass(A);el.innerHTML=html;
+  const c=flagCount();$("#signCount").textContent=c?`(${c} ticked)`:"";
+}
+function drawChart(A){
+  const box=$("#chart"),W=Math.max(260,box.clientWidth||320),H=176;
+  const padL=34,padR=8,padT=22,padB=22,pw=W-padL-padR,ph=H-padT-padB,base=padT+ph;
+  const win=S.win*60000,t0=A.now-win,X=t=>padL+(t-t0)/win*pw,Y=d=>padT+ph*(1-clamp(d/90,.1,1));
+  const vis=A.list.map((c,i)=>({c,i})).filter(o=>o.c.end>=t0);
+  let s=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Trace of the last ${S.win===60?"hour":"3 hours"}: ${vis.length} contractions">`;
+  [30,60,90].forEach(v=>{const y=padT+ph*(1-v/90);s+=`<line class="${v===60?"g60":"g"}" x1="${padL}" x2="${W-padR}" y1="${y}" y2="${y}"/><text class="ax" x="${padL-6}" y="${y+3}" text-anchor="end">${v}s</text>`});
+  const step=S.win===60?15:60,total=S.win/step;
+  for(let k=0;k<=total;k++){
+    const back=S.win-k*step,x=padL+k/total*pw;
+    const lab=back===0?"now":(S.win===60?"-"+back+"m":"-"+(back/60)+"h");
+    s+=`<line class="g" x1="${x}" x2="${x}" y1="${padT}" y2="${base+4}"/><text class="ax" x="${clamp(x,padL+8,W-padR-10)}" y="${H-6}" text-anchor="${k===0?"start":k===total?"end":"middle"}">${lab}</text>`;
+  }
+  if(A.streak.active){
+    const x0=clamp(X(A.streak.startMs),padL,W-padR),x1=clamp(X(A.list[A.n-1].end),padL,W-padR);
+    if(x1>x0){s+=`<rect class="band" x="${x0}" y="${padT}" width="${x1-x0}" height="${ph}" rx="3"/><text class="bl" x="${x0+4}" y="${padT-7}">${rule().label} hour: ${Math.floor(A.streak.min)} of 60 min</text>`}
+  }
+  vis.forEach(o=>{
+    const c=o.c,xs0=X(Math.max(c.start,t0)),xe0=X(c.end),mid=(xs0+xe0)/2,wd=Math.max(4,xe0-xs0),xs=mid-wd/2,xe=mid+wd/2,top=Y((c.end-c.start)/1000);
+    const ph2=phaseAt(A.list,o.i),k=wd*.32;
+    s+=`<path class="b b-${ph2}" d="M${xs.toFixed(1)} ${base}C${(xs+k).toFixed(1)} ${base} ${(mid-k*.8).toFixed(1)} ${top.toFixed(1)} ${mid.toFixed(1)} ${top.toFixed(1)}S${(xe-k).toFixed(1)} ${base} ${xe.toFixed(1)} ${base}Z"/>`;
+  });
+  s+=`<line class="g" x1="${padL}" x2="${W-padR}" y1="${base}" y2="${base}" style="stroke:var(--muted)"/>`;
+  if(!vis.length)s+=`<text class="empty" x="${W/2}" y="${padT+ph/2}" text-anchor="middle">Nothing in this window yet</text>`;
+  box.innerHTML=s+"</svg>";
+}
+function renderLog(A){
+  const list=A.list.map((c,i)=>({c,i})).reverse();
+  const lim=S.showAll?list.length:8,shown=list.slice(0,lim);
+  $("#logList").innerHTML=shown.length?shown.map(o=>{
+    const c=o.c,i=o.i,ph2=phaseAt(A.list,i),apart=i?fmtMS(A.ints[i])+" apart":"first one";
+    const chips=[["1","Mild"],["2","Moderate"],["3","Strong"]].map(r=>`<button type="button" class="chip" aria-pressed="${c.intensity==r[0]}" data-act="int" data-id="${c.id}" data-v="${r[0]}">${r[1]}</button>`).join("");
+    return `<li class="li"><span class="dot" style="--ph:var(--${ph2==="early"?"early":ph2==="active"?"active":ph2==="transition"?"trans":"muted"})"></span>
+      <div><span class="t">${clock(c.start)}</span> <span class="m">· <b>${fmtMS(A.durs[i])}</b> long · ${apart}</span></div><span></span>
+      <div class="acts">${chips}<button type="button" class="x" data-act="del" data-id="${c.id}" aria-label="Delete contraction at ${clock(c.start)}">Delete</button></div></li>`;
+  }).join(""):`<li class="empty-log">No contractions yet. Tap Start when one begins.</li>`;
+  const more=$("#more");
+  if(list.length>8){more.hidden=false;more.textContent=S.showAll?"Show fewer":`Show all ${list.length}`}else more.hidden=true;
+  $("#clearAll").hidden=!list.length;
+}
+function renderBanner(){
+  const b=$("#banner");
+  b.innerHTML=S.example?`<div class="banner"><span><b>Example data:</b> ${EXAMPLES[S.example]}. Your first real contraction replaces it.</span><button class="link" type="button" data-act="fresh">Start fresh</button></div>`:"";
+}
+function renderSetup(){
+  $$("#ruleSeg button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.rule===S.rule));
+  $$("#histSeg button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.hist===S.history));
+  $$("#exChips .chip").forEach(b=>b.setAttribute("aria-pressed",b.dataset.ex===S.example));
+  $("#ruleHint").textContent=`${rule().label} means contractions ${rule().x} minutes apart, lasting 1 minute, for 1 hour. Use the rule your provider gave you.`;
+  $("#histHint").textContent=S.history==="first"?"First labors are often long, so there is usually time at each stage.":"Labor after a first baby can move fast. If your last one was quick, consider leaving earlier than the rule says.";
+  $("#tVal").textContent=S.travel+" min";
+  $("#preterm").checked=!!S.preterm;
+  $$("[data-flag]").forEach(i=>{i.checked=!!S.flags[i.dataset.flag]});
+  $$("#winSeg button").forEach(b=>b.setAttribute("aria-pressed",+b.dataset.win===S.win));
+}
+function render(){
+  const A=analyze(Date.now());
+  renderPhase(A);renderStats(A);renderGo(A);drawChart(A);renderLog(A);renderBanner();renderSetup();updateDial();
+}
+
+/* ---------- dial ---------- */
+const dial=$("#dial"),prog=$("#prog");
+function updateDial(){
+  const now=Date.now(),cur=S.current,list=done(),n=list.length;
+  $("#clock").textContent=new Date(now).toLocaleString([],{weekday:"short",hour:"numeric",minute:"2-digit"});
+  $("#countVal").textContent=n;
+  if(cur){
+    const el=(now-cur.start)/1000;
+    dial.classList.add("run");dial.classList.toggle("done",el>=60);
+    $("#dMain").textContent=fmtMS(el);
+    $("#dSub").textContent=el>=60?"1 minute reached. Tap when it ends":"Tap when it ends";
+    prog.style.strokeDashoffset=678.6*(1-clamp(el/60,0,1));
+    $("#sinceVal").textContent=n?fmtMS((cur.start-list[n-1].start)/1000):"–";
+  }else{
+    dial.classList.remove("run","done");
+    $("#dMain").textContent="Start";$("#dSub").textContent="Tap when a contraction begins";
+    prog.style.strokeDashoffset=678.6;
+    $("#sinceVal").textContent=n?fmtMS((now-list[n-1].start)/1000):"–";
+  }
+  const last=list[n-1];
+  $("#rate").hidden=!(!cur&&last&&last.intensity==null&&now-last.end<20000);
+}
+dial.addEventListener("click",()=>{
+  const now=Date.now();
+  if(S.current){
+    const c={id:uid(),start:S.current.start,end:now,intensity:null};
+    S.contractions.push(c);S.current=null;
+    $("#live").textContent="Contraction saved, "+fmtMS((c.end-c.start)/1000)+" long.";
+  }else{
+    if(S.example){S.contractions=[];S.example=null}
+    S.current={start:now};$("#live").textContent="Contraction started.";
+  }
+  save();render();
+});
+$("#rate").addEventListener("click",e=>{
+  const b=e.target.closest("[data-rate]");if(!b)return;
+  const l=done(),last=l[l.length-1];if(last){last.intensity=+b.dataset.rate;save();render()}
+});
+$("#undo").addEventListener("click",()=>{
+  if(S.current){S.current=null}else{const l=done(),last=l[l.length-1];if(last)S.contractions=S.contractions.filter(c=>c.id!==last.id)}
+  save();render();
+});
+
+/* ---------- list, setup, signs ---------- */
+$("#logList").addEventListener("click",e=>{
+  const b=e.target.closest("[data-act]");if(!b)return;
+  const c=S.contractions.find(x=>x.id===b.dataset.id);
+  if(b.dataset.act==="del")S.contractions=S.contractions.filter(x=>x.id!==b.dataset.id);
+  else if(c)c.intensity=c.intensity==+b.dataset.v?null:+b.dataset.v;
+  save();render();
+});
+$("#more").addEventListener("click",()=>{S.showAll=!S.showAll;save();render()});
+let clearArmed=null;
+$("#clearAll").addEventListener("click",e=>{
+  const b=e.currentTarget;
+  if(clearArmed){clearTimeout(clearArmed);clearArmed=null;b.textContent="Clear all";S.contractions=[];S.current=null;S.example=null;save();render();return}
+  b.textContent="Tap again to clear";clearArmed=setTimeout(()=>{clearArmed=null;b.textContent="Clear all"},4000);
+});
+$("#banner").addEventListener("click",e=>{if(e.target.closest("[data-act=fresh]")){S.contractions=[];S.example=null;S.current=null;save();render()}});
+$("#ruleSeg").addEventListener("click",e=>{const b=e.target.closest("[data-rule]");if(b){S.rule=b.dataset.rule;save();render()}});
+$("#histSeg").addEventListener("click",e=>{const b=e.target.closest("[data-hist]");if(b){S.history=b.dataset.hist;save();render()}});
+$("#winSeg").addEventListener("click",e=>{const b=e.target.closest("[data-win]");if(b){S.win=+b.dataset.win;save();render()}});
+$("#tMinus").addEventListener("click",()=>{S.travel=clamp(S.travel-5,5,120);save();render()});
+$("#tPlus").addEventListener("click",()=>{S.travel=clamp(S.travel+5,5,120);save();render()});
+$("#preterm").addEventListener("change",e=>{S.preterm=e.target.checked;save();render()});
+$("#signs").addEventListener("change",e=>{const k=e.target.dataset.flag;if(k){S.flags[k]=e.target.checked;save();render()}});
+$("#exChips").addEventListener("click",e=>{
+  const b=e.target.closest("[data-ex]");if(!b)return;
+  S.current=null;
+  if(b.dataset.ex==="fresh"){S.contractions=[];S.example=null}
+  else{S.contractions=makeExample(b.dataset.ex);S.example=b.dataset.ex}
+  save();render();
+});
+
+/* ---------- loop ---------- */
+setInterval(updateDial,250);
+setInterval(()=>{const a=document.activeElement;if(!a||!a.closest||!a.closest("#log,#setup,#signs"))render()},15000);
+if(window.ResizeObserver)new ResizeObserver(()=>drawChart(analyze(Date.now()))).observe($("#chart"));
+render();
+})();
+</script>

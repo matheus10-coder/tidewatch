@@ -623,18 +623,37 @@ $("#xImport").addEventListener("click",()=>{
 function payload(){return JSON.stringify({tidewatch:1,contractions:done().map(c=>({start:c.start,end:c.end,intensity:c.intensity})),rule:S.rule,history:S.history,travel:S.travel,preterm:S.preterm,flags:S.flags})}
 $("#xLink").addEventListener("click",()=>{
   const live="https://matheus10-coder.github.io/tidewatch/",base=/github\.io$/.test(location.hostname)?location.origin+location.pathname:live;
-  const url=base+"#import="+btoa(payload()).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+  const url=base+"#t="+shortCode();
   const ta=$("#xfer");ta.value=url;ta.focus();ta.select();
   const fb=()=>xmsg("Link selected. Copy it, then open it on the other device.");
   if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(url).then(()=>xmsg("Link copied. Open it on the other device to load your contractions."),fb)}else fb();
 });
+const FL=["water","bleed","move","nobreak","head","push"];
+function shortCode(){
+  const mask=FL.reduce((m,k,i)=>m+(S.flags[k]?(1<<i):0),0);
+  const head=["1",Object.keys(RULES).indexOf(S.rule),S.history==="again"?1:0,S.travel,S.preterm?1:0,mask].join(".");
+  return head+"~"+done().map(c=>[Math.round(c.start/1000).toString(36),Math.round((c.end-c.start)/1000).toString(36),c.intensity||0].join(".")).join("~");
+}
+function decodeShort(s){
+  const p=s.split("~"),h=p[0].split(".");
+  if(h[0]!=="1")return null;
+  const keys=Object.keys(RULES),flags={};
+  FL.forEach((k,i)=>{if((+h[5])&(1<<i))flags[k]=true});
+  const cs=p.slice(1).filter(Boolean).map(x=>{const a=x.split("."),st=parseInt(a[0],36)*1000;return{start:st,end:st+parseInt(a[1],36)*1000,intensity:+a[2]||null}});
+  return{tidewatch:1,contractions:cs,rule:keys[+h[1]],history:+h[2]?"again":"first",travel:+h[3],preterm:!!+h[4],flags};
+}
 (function(){
-  const m=/^#import=(.+)$/.exec(location.hash||"");if(!m)return;
+  const raw=location.hash||"";if(!raw||raw==="#")return;
+  const m=/^#(import|t)=(.+)$/.exec(raw);
+  if(!m){xmsg("The link arrived without its data. Open it again, or use Copy data and Import.");return}
+  let n=-1;
   try{
-    const b=m[1].replace(/-/g,"+").replace(/_/g,"/"),n=applyImport(JSON.parse(atob(b+"===".slice((b.length+3)%4))));
-    history.replaceState(null,"",location.pathname+location.search);
-    if(n>=0)xmsg("Imported "+n+" contractions from the link.");
-  }catch(e){}
+    if(m[1]==="t")n=applyImport(decodeShort(m[2]));
+    else{const b=m[2].replace(/-/g,"+").replace(/_/g,"/");n=applyImport(JSON.parse(atob(b+"===".slice((b.length+3)%4))))}
+  }catch(e){n=-1}
+  history.replaceState(null,"",location.pathname+location.search);
+  xmsg(n>=0?"Imported "+n+" contractions from the link.":"The link looks cut off, so nothing was imported. Use Copy data on the other device and paste it in the box above.");
+  if(n<0)$("#setup").scrollIntoView();
 })();
 
 /* ---------- loop ---------- */

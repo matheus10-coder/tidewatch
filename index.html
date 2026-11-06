@@ -173,6 +173,7 @@ h1,h2,h3,p{margin:0}
 .stepper button{width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--surface-2);font-size:20px;line-height:1}
 .stepper output{font-family:var(--font-mono);font-size:20px;min-width:7ch;text-align:center;font-variant-numeric:tabular-nums}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
+#xfer{width:100%;resize:vertical;background:var(--surface-2);color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:10px;font:12px/1.4 var(--font-mono)}
 .foot{margin-top:18px;font-size:12px;color:var(--muted);max-width:70ch}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 </style>
@@ -250,6 +251,10 @@ h1,h2,h3,p{margin:0}
         <div class="stepper"><button type="button" id="tMinus" aria-label="5 minutes less">−</button><output id="tVal" aria-live="polite"></output><button type="button" id="tPlus" aria-label="5 minutes more">+</button></div>
         <p class="hint">Past 30 minutes, the plan moves your leave time earlier by the extra drive.</p></div>
       <label class="chk"><input type="checkbox" id="preterm"> I am before 37 weeks</label>
+      <div class="field"><label class="lab" for="xfer">Back up or move your data</label>
+        <textarea id="xfer" rows="3" spellcheck="false" placeholder="Tap Copy data, then paste it here on another device and tap Import."></textarea>
+        <div class="chips"><button class="chip" type="button" id="xCopy">Copy data</button><button class="chip" type="button" id="xImport">Import</button></div>
+        <p class="hint" id="xMsg" aria-live="polite">Importing replaces the contractions on this device.</p></div>
       <div class="field"><span class="lab">Prototype demo data</span>
         <div class="chips" id="exChips">
           <button class="chip" type="button" data-ex="early" aria-pressed="false">Early</button>
@@ -588,6 +593,27 @@ $("#exChips").addEventListener("click",e=>{
   if(b.dataset.ex==="fresh"){S.contractions=[];S.example=null}
   else{S.contractions=makeExample(b.dataset.ex);S.example=b.dataset.ex}
   save();render();
+});
+
+/* ---------- backup / transfer ---------- */
+function xmsg(t){$("#xMsg").textContent=t}
+$("#xCopy").addEventListener("click",()=>{
+  const ta=$("#xfer"),txt=JSON.stringify({tidewatch:1,contractions:done().map(c=>({start:c.start,end:c.end,intensity:c.intensity})),rule:S.rule,history:S.history,travel:S.travel,preterm:S.preterm,flags:S.flags});
+  ta.value=txt;ta.focus();ta.select();
+  const fallback=()=>xmsg("Selected. Copy it with your device's Copy command.");
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(()=>xmsg("Copied "+done().length+" contractions. Paste it on the other device."),fallback)}else fallback();
+});
+$("#xImport").addEventListener("click",()=>{
+  let d;try{d=JSON.parse($("#xfer").value)}catch(e){d=null}
+  if(!d||d.tidewatch!==1||!Array.isArray(d.contractions)){xmsg("That does not look like Tidewatch data. Use Copy data on the other device first.");return}
+  const ok=d.contractions.filter(c=>c&&isFinite(c.start)&&isFinite(c.end)&&c.end>c.start);
+  S.contractions=ok.map(c=>({id:uid(),start:c.start,end:c.end,intensity:c.intensity==null?null:+c.intensity}));
+  S.current=null;S.example=null;
+  if(RULES[d.rule])S.rule=d.rule;
+  if(d.history==="first"||d.history==="again")S.history=d.history;
+  if(isFinite(d.travel))S.travel=clamp(+d.travel,5,120);
+  S.preterm=!!d.preterm;S.flags=d.flags&&typeof d.flags==="object"?d.flags:{};
+  save();render();xmsg("Imported "+ok.length+" contractions.");$("#xfer").value="";
 });
 
 /* ---------- loop ---------- */

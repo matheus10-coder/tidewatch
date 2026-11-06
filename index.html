@@ -253,7 +253,7 @@ h1,h2,h3,p{margin:0}
       <label class="chk"><input type="checkbox" id="preterm"> I am before 37 weeks</label>
       <div class="field"><label class="lab" for="xfer">Back up or move your data</label>
         <textarea id="xfer" rows="3" spellcheck="false" placeholder="Tap Copy data, then paste it here on another device and tap Import."></textarea>
-        <div class="chips"><button class="chip" type="button" id="xCopy">Copy data</button><button class="chip" type="button" id="xImport">Import</button></div>
+        <div class="chips"><button class="chip" type="button" id="xLink">Copy transfer link</button><button class="chip" type="button" id="xCopy">Copy data</button><button class="chip" type="button" id="xImport">Import</button></div>
         <p class="hint" id="xMsg" aria-live="polite">Importing replaces the contractions on this device.</p></div>
       <div class="field"><span class="lab">Prototype demo data</span>
         <div class="chips" id="exChips">
@@ -603,9 +603,8 @@ $("#xCopy").addEventListener("click",()=>{
   const fallback=()=>xmsg("Selected. Copy it with your device's Copy command.");
   if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(()=>xmsg("Copied "+done().length+" contractions. Paste it on the other device."),fallback)}else fallback();
 });
-$("#xImport").addEventListener("click",()=>{
-  let d;try{d=JSON.parse($("#xfer").value)}catch(e){d=null}
-  if(!d||d.tidewatch!==1||!Array.isArray(d.contractions)){xmsg("That does not look like Tidewatch data. Use Copy data on the other device first.");return}
+function applyImport(d){
+  if(!d||d.tidewatch!==1||!Array.isArray(d.contractions))return -1;
   const ok=d.contractions.filter(c=>c&&isFinite(c.start)&&isFinite(c.end)&&c.end>c.start);
   S.contractions=ok.map(c=>({id:uid(),start:c.start,end:c.end,intensity:c.intensity==null?null:+c.intensity}));
   S.current=null;S.example=null;
@@ -613,8 +612,30 @@ $("#xImport").addEventListener("click",()=>{
   if(d.history==="first"||d.history==="again")S.history=d.history;
   if(isFinite(d.travel))S.travel=clamp(+d.travel,5,120);
   S.preterm=!!d.preterm;S.flags=d.flags&&typeof d.flags==="object"?d.flags:{};
-  save();render();xmsg("Imported "+ok.length+" contractions.");$("#xfer").value="";
+  save();render();return ok.length;
+}
+$("#xImport").addEventListener("click",()=>{
+  let d;try{d=JSON.parse($("#xfer").value)}catch(e){d=null}
+  const n=applyImport(d);
+  if(n<0){xmsg("That does not look like Tidewatch data. Use Copy data on the other device first.");return}
+  xmsg("Imported "+n+" contractions.");$("#xfer").value="";
 });
+function payload(){return JSON.stringify({tidewatch:1,contractions:done().map(c=>({start:c.start,end:c.end,intensity:c.intensity})),rule:S.rule,history:S.history,travel:S.travel,preterm:S.preterm,flags:S.flags})}
+$("#xLink").addEventListener("click",()=>{
+  const live="https://matheus10-coder.github.io/tidewatch/",base=/github\.io$/.test(location.hostname)?location.origin+location.pathname:live;
+  const url=base+"#import="+btoa(payload()).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+  const ta=$("#xfer");ta.value=url;ta.focus();ta.select();
+  const fb=()=>xmsg("Link selected. Copy it, then open it on the other device.");
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(url).then(()=>xmsg("Link copied. Open it on the other device to load your contractions."),fb)}else fb();
+});
+(function(){
+  const m=/^#import=(.+)$/.exec(location.hash||"");if(!m)return;
+  try{
+    const b=m[1].replace(/-/g,"+").replace(/_/g,"/"),n=applyImport(JSON.parse(atob(b+"===".slice((b.length+3)%4))));
+    history.replaceState(null,"",location.pathname+location.search);
+    if(n>=0)xmsg("Imported "+n+" contractions from the link.");
+  }catch(e){}
+})();
 
 /* ---------- loop ---------- */
 setInterval(updateDial,250);

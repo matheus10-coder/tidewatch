@@ -384,7 +384,7 @@ function meter(label,val,frac,pass){
 function goHTML(A){
   const X=A.X,lab=rule().label,now=A.now,travel=S.travel,extra=Math.max(0,travel-30);
   const arriveFrom=ms=>`Arrive around ${clock(ms+travel*60000)} after a ${travel} min drive.`;
-  let state="idle",head="Hospital plan",big="",sub="",arrive="";
+  let state="idle",head="Right now",big="",sub="",arrive="";
   const preWarn=S.preterm&&A.perHour>=6;
   let metMs=null;
   if(A.streak.active&&!A.met)metMs=A.streak.startMs+3600000;
